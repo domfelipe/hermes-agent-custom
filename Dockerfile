@@ -12,7 +12,7 @@ RUN printf 'Você é Mika, uma assistente pessoal de IA criada pela DomCo.' > /o
 COPY patches/skills_api.py   /opt/hermes-custom/skills_api.py
 COPY patches/apply_patch.py  /opt/hermes-custom/apply_patch.py
 
-# Disponibiliza skills_api no PYTHONPATH e injeta o include_router no api_server.py
+# Disponibiliza skills_api no PYTHONPATH e injeta add_routes dentro de start()
 ENV PYTHONPATH="/opt/hermes-custom:${PYTHONPATH}"
 RUN python3 /opt/hermes-custom/apply_patch.py /opt/hermes/gateway/platforms/api_server.py
 

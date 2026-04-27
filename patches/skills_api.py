@@ -1,5 +1,6 @@
 """
-Skills API router — injetado no api_server.py do Hermes pelo apply_patch.py.
+Skills API (aiohttp) — injetado no api_server.py do Hermes via apply_patch.py.
+
 Expõe:
   GET  /api/skills          → lista skills do tenant
   POST /api/skills/sync     → upsert em lote (chamado pelo Lovable)
@@ -7,13 +8,14 @@ Expõe:
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException
+from aiohttp import web
 
-router = APIRouter(prefix="/api/skills", tags=["skills"])
+skills_routes = web.RouteTableDef()
 
 SKILLS_DIR = Path(os.environ.get("HERMES_SKILLS_DIR", "/opt/data/.hermes/skills"))
 SYNC_TOKEN = os.environ.get("HERMES_SKILLS_SYNC_TOKEN", "")
@@ -25,36 +27,41 @@ def _ensure_dir() -> None:
 
 def _check_auth(token: str | None) -> None:
     if not SYNC_TOKEN:
-        raise HTTPException(500, "HERMES_SKILLS_SYNC_TOKEN não configurado")
+        raise web.HTTPInternalServerError(reason="HERMES_SKILLS_SYNC_TOKEN não configurado")
     if token != SYNC_TOKEN:
-        raise HTTPException(401, "Token inválido")
+        raise web.HTTPUnauthorized(reason="Token inválido")
 
 
-@router.get("/health")
-def health() -> dict[str, Any]:
+@skills_routes.get("/api/skills/health")
+async def health(_request: web.Request) -> web.Response:
     _ensure_dir()
-    return {"ok": True, "dir": str(SKILLS_DIR), "count": len(list(SKILLS_DIR.glob("*.md")))}
+    return web.json_response(
+        {"ok": True, "dir": str(SKILLS_DIR), "count": len(list(SKILLS_DIR.glob("*.md")))}
+    )
 
 
-@router.get("")
-def list_skills() -> dict[str, Any]:
+@skills_routes.get("/api/skills")
+async def list_skills(_request: web.Request) -> web.Response:
     _ensure_dir()
-    items = []
+    items: list[dict[str, Any]] = []
     for f in sorted(SKILLS_DIR.glob("*.md")):
         items.append({"name": f.stem, "size": f.stat().st_size})
-    return {"skills": items}
+    return web.json_response({"skills": items})
 
 
-@router.post("/sync")
-def sync_skills(
-    payload: dict[str, Any],
-    x_sync_token: str | None = Header(default=None, alias="X-Sync-Token"),
-) -> dict[str, Any]:
-    _check_auth(x_sync_token)
+@skills_routes.post("/api/skills/sync")
+async def sync_skills(request: web.Request) -> web.Response:
+    _check_auth(request.headers.get("X-Sync-Token"))
     _ensure_dir()
+
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise web.HTTPBadRequest(reason="JSON inválido")
+
     skills = payload.get("skills") or []
     if not isinstance(skills, list):
-        raise HTTPException(400, "skills deve ser uma lista")
+        raise web.HTTPBadRequest(reason="skills deve ser uma lista")
 
     written: list[str] = []
     for s in skills:
@@ -66,11 +73,10 @@ def sync_skills(
         target.write_text(body, encoding="utf-8")
         written.append(name)
 
-    # Remove skills que não vieram no payload (sync completo, opcional)
     if payload.get("prune"):
         keep = set(written)
         for f in SKILLS_DIR.glob("*.md"):
             if f.stem not in keep:
                 f.unlink(missing_ok=True)
 
-    return {"written": written, "count": len(written)}
+    return web.json_response({"written": written, "count": len(written)})
