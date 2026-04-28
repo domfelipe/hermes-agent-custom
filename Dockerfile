@@ -1,27 +1,64 @@
-# Estágio 1: builda o Hermes a partir do código-fonte oficial
+# ============================================================
+# Stage 1: Build Hermes a partir do código-fonte oficial
+# ============================================================
 FROM python:3.12-slim AS hermes-base
 
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 https://github.com/NousResearch/hermes-agent.git /opt/hermes
-WORKDIR /opt/hermes
-RUN pip install --no-cache-dir -e .
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        curl \
+        ca-certificates \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# ===== Suas customizações Mika =====
+# Clona o Hermes oficial da NousResearch
+RUN git clone --depth 1 https://github.com/NousResearch/hermes-agent.git /opt/hermes
+
+WORKDIR /opt/hermes
+
+# Instala o Hermes e suas dependências
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -e .
+
+# ============================================================
+# Stage 2: Customizações (skills_api + entrypoint + proxy)
+# ============================================================
 FROM hermes-base
 
+# Dependências adicionais para o proxy/skills_api
 RUN pip install --no-cache-dir aiohttp
 
-# Skills API + entrypoint
+# Copia customizações
 COPY patches/skills_api.py /opt/hermes-custom/skills_api.py
 COPY entrypoint.sh         /opt/hermes-custom/entrypoint.sh
 RUN chmod +x /opt/hermes-custom/entrypoint.sh
 
+# Garante que o Python encontre o módulo customizado
 ENV PYTHONPATH=/opt/hermes-custom:/opt/hermes
 
-# Config + SOUL default
-RUN mkdir -p /opt/data/.hermes && \
-    printf 'model:\n  provider: ollama-cloud\n  default: gemma4:31b-cloud\n' > /opt/data/.hermes/config.yaml && \
-    printf 'Você é Mika, uma assistente pessoal de IA criada pela DomCo.' > /opt/data/.hermes/SOUL.md
+# Diretório de dados/config do Hermes
+RUN mkdir -p /opt/data/.hermes /opt/hermes-custom
 
+# Config padrão (caso HERMES_CONFIG_OVERRIDE não seja definido)
+RUN printf '%s\n' \
+    'name: hermes-custom' \
+    'host: 127.0.0.1' \
+    'port: 8000' \
+    'data_dir: /opt/data' \
+    > /opt/data/.hermes/config.yaml
+
+# SOUL.md padrão (sobrescrito em runtime via HERMES_SOUL_OVERRIDE)
+RUN printf '%s\n' \
+    '# Hermes Soul' \
+    '' \
+    'Default soul. Override via HERMES_SOUL_OVERRIDE.' \
+    > /opt/data/.hermes/SOUL.md
+
+# Cria o usuário hermes (esperado pelos scripts internos do Hermes)
+RUN groupadd -r hermes \
+    && useradd -r -g hermes -d /opt/data -s /usr/sbin/nologin hermes \
+    && chown -R hermes:hermes /opt/data /opt/hermes-custom /opt/hermes
+
+# Porta pública do proxy/skills_api
 EXPOSE 8642
+
 ENTRYPOINT ["/opt/hermes-custom/entrypoint.sh"]
