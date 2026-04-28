@@ -1,14 +1,14 @@
 #!/bin/bash
 set -e
 
-# ============================================================
+# ===========================================================
 # Hermes Fork Entrypoint — Reverse Proxy Strategy
-# ============================================================
+# ===========================================================
 # 1) Hermes original roda em 127.0.0.1:8000 (interno)
 # 2) skills_api.py roda em 0.0.0.0:$PORT (público)
 #    - intercepta /api/skills/*
 #    - proxy todo o resto para o Hermes
-# ============================================================
+# ===========================================================
 
 # Suspensão (mantém compatibilidade com a flag HERMES_SUSPENDED)
 if [ "$HERMES_SUSPENDED" = "true" ]; then
