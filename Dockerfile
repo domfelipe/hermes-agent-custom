@@ -4,7 +4,7 @@ FROM ghcr.io/nousresearch/hermes:latest
 RUN pip install --no-cache-dir aiohttp
 
 # Copia os arquivos customizados
-COPY skills_api.py /opt/hermes-custom/skills_api.py
+COPY patches/skills_api.py /opt/hermes-custom/skills_api.py
 COPY entrypoint.sh /opt/hermes-custom/entrypoint.sh
 RUN chmod +x /opt/hermes-custom/entrypoint.sh
 
