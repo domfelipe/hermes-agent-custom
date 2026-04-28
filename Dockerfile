@@ -11,7 +11,7 @@ RUN chmod +x /opt/hermes-custom/entrypoint.sh
 # Garante que o Python encontra os módulos do Hermes
 ENV PYTHONPATH=/opt/hermes:/opt/hermes-custom
 
-# Config + SOUL default (embutidos na imagem)
+# Config + SOUL default embutidos na imagem
 RUN mkdir -p /opt/data/.hermes && \
     printf 'model:\n  provider: ollama-cloud\n  default: gemma4:31b-cloud\n' > /opt/data/.hermes/config.yaml && \
     printf 'Você é Mika, uma assistente pessoal de IA criada pela DomCo.' > /opt/data/.hermes/SOUL.md
