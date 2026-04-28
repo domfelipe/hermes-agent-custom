@@ -1,24 +1,22 @@
-FROM nousresearch/hermes-agent:latest
+FROM ghcr.io/nousresearch/hermes:latest
 
-USER root
+# Instala aiohttp para o servidor proxy + skills_api
+RUN pip install --no-cache-dir aiohttp
 
-RUN mkdir -p /opt/data/.hermes /opt/data/.hermes/skills /opt/hermes-custom
+# Copia os arquivos customizados
+COPY skills_api.py /opt/hermes-custom/skills_api.py
+COPY entrypoint.sh /opt/hermes-custom/entrypoint.sh
+RUN chmod +x /opt/hermes-custom/entrypoint.sh
 
-# Config + SOUL default
-RUN printf 'model:\n  provider: ollama-cloud\n  default: gemma4:31b-cloud\n' > /opt/data/.hermes/config.yaml
-RUN printf 'Você é Mika, uma assistente pessoal de IA criada pela DomCo.' > /opt/data/.hermes/SOUL.md
+# Garante que o Python encontra os módulos do Hermes
+ENV PYTHONPATH=/opt/hermes:/opt/hermes-custom
 
-# Patches
-COPY patches/skills_api.py   /opt/hermes-custom/skills_api.py
-COPY patches/apply_patch.py  /opt/hermes-custom/apply_patch.py
+# Config + SOUL default (embutidos na imagem)
+RUN mkdir -p /opt/data/.hermes && \
+    printf 'model:\n  provider: ollama-cloud\n  default: gemma4:31b-cloud\n' > /opt/data/.hermes/config.yaml && \
+    printf 'Você é Mika, uma assistente pessoal de IA criada pela DomCo.' > /opt/data/.hermes/SOUL.md
 
-# Disponibiliza skills_api no PYTHONPATH e injeta add_routes dentro de start()
-ENV PYTHONPATH="/opt/hermes-custom:${PYTHONPATH}"
-RUN python3 /opt/hermes-custom/apply_patch.py /opt/hermes/gateway/platforms/api_server.py
+# A porta pública é definida pelo Railway via $PORT
+EXPOSE 8642
 
-# Entrypoint custom
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-ENTRYPOINT ["/entrypoint.sh"]
-CMD ["gateway"]
+ENTRYPOINT ["/opt/hermes-custom/entrypoint.sh"]
