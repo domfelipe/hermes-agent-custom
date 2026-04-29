@@ -8,17 +8,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         ca-certificates \
         build-essential \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Clona o Hermes oficial da NousResearch
 RUN git clone --depth 1 https://github.com/NousResearch/hermes-agent.git /opt/hermes
-
 WORKDIR /opt/hermes
 
-# Instala o Hermes e suas dependências
+# Builda o frontend do dashboard web (necessário para `hermes dashboard`)
+WORKDIR /opt/hermes/web
+RUN npm install && npm run build
+
+# Volta para a raiz e instala o Hermes + dependências Python
+WORKDIR /opt/hermes
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -e ".[all]"
-
 
 # ============================================================
 # Stage 2: Customizações (skills_api + entrypoint + proxy)
