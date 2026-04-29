@@ -17,7 +17,8 @@ WORKDIR /opt/hermes
 
 # Instala o Hermes e suas dependências
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -e .
+    && pip install --no-cache-dir -e ".[all]"
+
 
 # ============================================================
 # Stage 2: Customizações (skills_api + entrypoint + proxy)
