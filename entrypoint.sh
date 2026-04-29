@@ -26,7 +26,7 @@ echo "[entrypoint] Proxy público:  ${PUBLIC_HOST}:${PUBLIC_PORT}"
 echo "[entrypoint] Iniciando Hermes original..."
 
 # Inicia o Hermes original em background como usuário hermes
-su -s /bin/bash hermes -c "cd /opt/hermes && python -m hermes_agent serve --host ${INTERNAL_HOST} --port ${INTERNAL_PORT}" &
+su -s /bin/bash hermes -c "cd /opt/hermes && hermes dashboard --host "$HERMES_INTERNAL_HOST" --port "$HERMES_INTERNAL_PORT" --no-open &&
 HERMES_PID=$!
 
 # Aguarda Hermes ficar pronto
