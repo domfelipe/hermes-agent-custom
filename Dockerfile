@@ -36,20 +36,35 @@ RUN pip install --no-cache-dir aiohttp
 # Copia customizações
 COPY patches/skills_api.py /opt/hermes-custom/skills_api.py
 COPY entrypoint.sh         /opt/hermes-custom/entrypoint.sh
+COPY plugins/mika_runtime  /opt/hermes/plugins/mika_runtime
 RUN chmod +x /opt/hermes-custom/entrypoint.sh
 
 # Garante que o Python encontre o módulo customizado
 ENV PYTHONPATH=/opt/hermes-custom:/opt/hermes
+ENV HERMES_MODEL_PROVIDER=ollama-cloud
+ENV HERMES_MODEL_DEFAULT=gemma4:31b-cloud
+ENV HERMES_STT_PROVIDER=local
+ENV HERMES_STT_LOCAL_MODEL=base
+ENV HERMES_TTS_PROVIDER=disabled
 
 # Diretório de dados/config do Hermes
 RUN mkdir -p /opt/data/.hermes /opt/hermes-custom
 
-# Config padrão (caso HERMES_CONFIG_OVERRIDE não seja definido)
+# Config padrão. O entrypoint reescreve este arquivo em runtime a partir das
+# env vars por tenant, mas deixamos um fallback válido já embutido na imagem.
 RUN printf '%s\n' \
     'name: hermes-custom' \
     'host: 127.0.0.1' \
     'port: 8000' \
     'data_dir: /opt/data' \
+    'model:' \
+    '  provider: "ollama-cloud"' \
+    '  default: "gemma4:31b-cloud"' \
+    'stt:' \
+    '  enabled: true' \
+    '  provider: "local"' \
+    '  local:' \
+    '    model: "base"' \
     > /opt/data/.hermes/config.yaml
 
 # SOUL.md padrão (sobrescrito em runtime via HERMES_SOUL_OVERRIDE)
