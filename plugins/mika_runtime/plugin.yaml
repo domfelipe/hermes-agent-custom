@@ -1,0 +1,10 @@
+name: mika_runtime
+version: 0.1.0
+description: "DOMCO Mika runtime integrations bridge for Notion, Todoist, and Cal.com using synced OAuth tokens."
+author: DOMCO
+kind: backend
+provides_tools:
+  - mika_integrations_status
+  - mika_notion_api
+  - mika_todoist_api
+  - mika_calcom_api
