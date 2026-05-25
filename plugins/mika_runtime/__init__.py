@@ -2,10 +2,12 @@
 
 from plugins.mika_runtime.tools import (
     CALCOM_API_SCHEMA,
+    CRONJOB_CREATE_SCHEMA,
     INTEGRATIONS_STATUS_SCHEMA,
     NOTION_API_SCHEMA,
     TODOIST_API_SCHEMA,
     handle_calcom_api,
+    handle_cronjob_create,
     handle_integrations_status,
     handle_notion_api,
     handle_todoist_api,
@@ -41,4 +43,11 @@ def register(ctx) -> None:
         schema=CALCOM_API_SCHEMA,
         handler=handle_calcom_api,
         emoji="📅",
+    )
+    ctx.register_tool(
+        name="cronjob_create",
+        toolset="mika_integrations",
+        schema=CRONJOB_CREATE_SCHEMA,
+        handler=handle_cronjob_create,
+        emoji="⏰",
     )

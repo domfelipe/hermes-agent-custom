@@ -72,6 +72,8 @@ RUN printf '%s\n' \
     '# Hermes Soul' \
     '' \
     'Default soul. Override via HERMES_SOUL_OVERRIDE.' \
+    '' \
+    'Quando o usuário pedir para agendar, lembrar ou automatizar algo recorrente, use a tool cronjob_create passando a frase original dele em natural_language_input.' \
     > /opt/data/.hermes/SOUL.md
 
 # Cria o usuário hermes (esperado pelos scripts internos do Hermes)
