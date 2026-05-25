@@ -150,6 +150,41 @@ CALCOM_API_SCHEMA = {
 }
 
 
+MIKA_CRONJOB_CREATE_SCHEMA = {
+    "name": "mika_cronjob_create",
+    "description": (
+        "Creates a scheduled cronjob that will be delivered via Telegram by Hermes. "
+        "Accepts natural language input describing when and what to do, e.g., "
+        "'me manda um resumo da semana toda sexta às 18h'. The job is stored in "
+        "Supabase scheduled_jobs and executed by Hermes."
+    ),
+    "parameters": {
+        "type": "object",
+        "required": ["natural_language_input"],
+        "properties": {
+            "natural_language_input": {
+                "type": "string",
+                "minLength": 5,
+                "maxLength": 1000,
+                "description": (
+                    "User request in natural language, e.g., "
+                    "'me manda um resumo da semana toda sexta às 18h'"
+                ),
+            },
+            "name": {
+                "type": "string",
+                "description": "Optional short name for the cronjob.",
+            },
+            "description": {
+                "type": "string",
+                "description": "Optional description of the cronjob.",
+            },
+        },
+        "additionalProperties": False,
+    },
+}
+
+
 def _json_response(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
 
@@ -504,3 +539,99 @@ def handle_calcom_api(args: dict[str, Any], **_: Any) -> str:
         },
         args=args,
     )
+
+
+def handle_mika_cronjob_create(args: dict[str, Any], **_: Any) -> str:
+    import os
+
+    agent_instance_id = os.environ.get("AGENT_INSTANCE_ID", "").strip()
+    internal_secret = os.environ.get("INTERNAL_FUNCTION_SECRET", "").strip()
+    supabase_url = os.environ.get("SUPABASE_URL", "").strip()
+
+    if not agent_instance_id:
+        return _json_response({
+            "ok": False,
+            "error": "AGENT_INSTANCE_ID environment variable not configured",
+        })
+
+    if not internal_secret:
+        return _json_response({
+            "ok": False,
+            "error": "INTERNAL_FUNCTION_SECRET environment variable not configured",
+        })
+
+    if not supabase_url:
+        return _json_response({
+            "ok": False,
+            "error": "SUPABASE_URL environment variable not configured",
+        })
+
+    natural_language_input = str(args.get("natural_language_input") or "").strip()
+    if not natural_language_input or len(natural_language_input) < 5:
+        return _json_response({
+            "ok": False,
+            "error": "natural_language_input is required and must be at least 5 characters",
+        })
+
+    name = str(args.get("name") or "").strip() or None
+    description = str(args.get("description") or "").strip() or None
+
+    payload = {
+        "agent_instance_id": agent_instance_id,
+        "natural_language_input": natural_language_input,
+    }
+    if name:
+        payload["name"] = name
+    if description:
+        payload["description"] = description
+
+    url = f"{supabase_url.rstrip('/')}/functions/v1/create-cronjob-from-agent"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Internal-Secret": internal_secret,
+        "User-Agent": USER_AGENT,
+    }
+
+    req = request.Request(
+        url=url,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        method="POST",
+        headers=headers,
+    )
+
+    try:
+        with request.urlopen(req, timeout=30) as response:
+            raw_body = response.read()
+            content_type = response.headers.get("Content-Type", "")
+            decoded_body, truncated = _decode_response_body(content_type, raw_body)
+
+            if isinstance(decoded_body, dict) and decoded_body.get("success"):
+                return _json_response({
+                    "ok": True,
+                    "success": True,
+                    "job_id": decoded_body.get("job_id"),
+                    "name": decoded_body.get("name"),
+                    "human_readable": decoded_body.get("human_readable"),
+                    "next_run_at": decoded_body.get("next_run_at"),
+                    "message": f"✅ Cronjob criado: {decoded_body.get('human_readable')}. Próxima execução: {decoded_body.get('next_run_at')}",
+                })
+            else:
+                return _json_response({
+                    "ok": False,
+                    "error": decoded_body.get("error") if isinstance(decoded_body, dict) else "Failed to create cronjob",
+                    "response": decoded_body,
+                })
+    except error.HTTPError as exc:
+        raw_body = exc.read()
+        content_type = exc.headers.get("Content-Type", "") if exc.headers else ""
+        decoded_body, _ = _decode_response_body(content_type, raw_body)
+        return _json_response({
+            "ok": False,
+            "error": f"HTTP {exc.code}: {decoded_body.get('error') if isinstance(decoded_body, dict) else 'Failed to create cronjob'}",
+            "response": decoded_body,
+        })
+    except Exception as exc:
+        return _json_response({
+            "ok": False,
+            "error": f"Request failed: {str(exc)}",
+        })
