@@ -8,3 +8,4 @@ provides_tools:
   - mika_notion_api
   - mika_todoist_api
   - mika_calcom_api
+  - cronjob_create

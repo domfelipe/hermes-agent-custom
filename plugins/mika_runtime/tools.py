@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, Tuple
 from urllib import error, parse, request
@@ -504,3 +505,91 @@ def handle_calcom_api(args: dict[str, Any], **_: Any) -> str:
         },
         args=args,
     )
+
+
+CRONJOB_CREATE_SCHEMA = {
+    "name": "cronjob_create",
+    "description": (
+        "Creates a recurring automation, reminder, or cronjob via Supabase edge "
+        "function. Use this whenever the user asks to schedule, remind, or automate "
+        "something on a recurring basis (e.g. 'remind me every Monday at 9am')."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "natural_language_input": {
+                "type": "string",
+                "description": (
+                    "The user's original request in natural language "
+                    "(e.g., 'remind me every Monday at 9am to check emails')."
+                ),
+            },
+            "name": {
+                "type": "string",
+                "description": "A short name for this automation (optional).",
+            },
+        },
+        "required": ["natural_language_input"],
+        "additionalProperties": False,
+    },
+}
+
+
+def handle_cronjob_create(args: dict[str, Any], **_: Any) -> str:
+    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    internal_secret = os.environ.get("INTERNAL_FUNCTION_SECRET", "")
+    agent_instance_id = os.environ.get("AGENT_INSTANCE_ID", "")
+
+    if not supabase_url:
+        return "Erro: variável de ambiente SUPABASE_URL não configurada."
+    if not internal_secret:
+        return "Erro: variável de ambiente INTERNAL_FUNCTION_SECRET não configurada."
+    if not agent_instance_id:
+        return "Erro: variável de ambiente AGENT_INSTANCE_ID não configurada."
+
+    natural_language_input = str(args.get("natural_language_input") or "").strip()
+    if not natural_language_input:
+        return "Erro: natural_language_input é obrigatório."
+
+    name = args.get("name") or None
+
+    url = f"{supabase_url}/functions/v1/create-cronjob-from-agent"
+    body_payload = {
+        "agent_instance_id": agent_instance_id,
+        "natural_language_input": natural_language_input,
+        "name": name,
+    }
+    payload = json.dumps(body_payload, ensure_ascii=False).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "x-internal-secret": internal_secret,
+        "User-Agent": USER_AGENT,
+    }
+
+    req = request.Request(url=url, data=payload, method="POST", headers=headers)
+
+    try:
+        with request.urlopen(req, timeout=30) as response:
+            raw_body = response.read()
+            try:
+                data = json.loads(raw_body.decode("utf-8", errors="replace"))
+            except Exception:
+                data = {}
+            human_readable = data.get("human_readable") or data.get("description") or ""
+            next_run_at = data.get("next_run_at") or ""
+            if human_readable:
+                msg = f"Automação criada: {human_readable}."
+                if next_run_at:
+                    msg += f" Próxima execução: {next_run_at}."
+                return msg
+            return "Automação criada com sucesso."
+    except error.HTTPError as exc:
+        raw_body = exc.read()
+        try:
+            data = json.loads(raw_body.decode("utf-8", errors="replace"))
+            err_msg = data.get("error") or data.get("message") or str(exc)
+        except Exception:
+            err_msg = str(exc)
+        return f"Erro ao criar automação: {err_msg}"
+    except Exception as exc:
+        return f"Erro de rede ao criar automação: {exc}"
