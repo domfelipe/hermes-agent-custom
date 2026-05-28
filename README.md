@@ -9,6 +9,7 @@ The Hermes gateway ignores environment variables for the primary model configura
 ## Configuration
 
 The image pre-configures:
+
 - **Provider**: `ollama-cloud`
 - **Model**: `gemma4:31b-cloud`
 - **Config path**: `/opt/data/.hermes/config.yaml`
@@ -28,6 +29,23 @@ PORT=8642
 TELEGRAM_BOT_TOKEN=your-bot-token
 TELEGRAM_ALLOWED_USERS=your-user-id
 TELEGRAM_HOME_CHANNEL=your-channel-id
+MIKA_AGENT_INSTANCE_ID=agent-instance-uuid
+MIKA_PLATFORM_FUNCTIONS_BASE_URL=https://<project>.supabase.co/functions/v1
+MIKA_CREATE_CRONJOB_URL=https://<project>.supabase.co/functions/v1/create-cronjob-from-agent
+MIKA_CREATE_SKILL_URL=https://<project>.supabase.co/functions/v1/create-skill-from-agent
+MIKA_INTERNAL_FUNCTION_SECRET=shared-internal-secret
+```
+
+`MIKA_CREATE_CRONJOB_URL` and `MIKA_CREATE_SKILL_URL` are optional when
+`MIKA_PLATFORM_FUNCTIONS_BASE_URL` or `SUPABASE_URL` is present. The Mika
+platform provisions all of these automatically for managed Railway services.
+
+## Validation
+
+```bash
+python3 -m unittest discover -s tests -v
+python3 -m compileall plugins patches tests
+git diff --check
 ```
 
 ## Deploy to Railway

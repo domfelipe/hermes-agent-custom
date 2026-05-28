@@ -21,6 +21,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Run runtime tests
+        run: |
+          python3 -m unittest discover -s tests -v
+          python3 -m compileall plugins patches tests
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
