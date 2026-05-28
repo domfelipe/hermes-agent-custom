@@ -15,6 +15,10 @@ STT_PROVIDER="${HERMES_STT_PROVIDER:-local}"
 STT_LOCAL_MODEL="${HERMES_STT_LOCAL_MODEL:-base}"
 STT_OPENAI_MODEL="${HERMES_STT_OPENAI_MODEL:-whisper-1}"
 TTS_PROVIDER="${HERMES_TTS_PROVIDER:-disabled}"
+GATEWAY_ENABLED="${HERMES_GATEWAY_ENABLED:-auto}"
+GATEWAY_ARGS="${HERMES_GATEWAY_ARGS:---replace}"
+HERMES_ALLOW_ROOT_GATEWAY="${HERMES_ALLOW_ROOT_GATEWAY:-1}"
+export HERMES_ALLOW_ROOT_GATEWAY
 
 mkdir -p "$HERMES_HOME"
 
@@ -83,12 +87,27 @@ echo "[entrypoint] Hermes interno: $INTERNAL_HOST:$INTERNAL_PORT"
 echo "[entrypoint] Proxy público:  $PUBLIC_HOST:$PUBLIC_PORT"
 echo "[entrypoint] Iniciando Hermes original..."
 
+PIDS=()
+
+cleanup() {
+  local status=$?
+  trap - EXIT INT TERM
+  if [ "${#PIDS[@]}" -gt 0 ]; then
+    kill "${PIDS[@]}" 2>/dev/null || true
+    wait "${PIDS[@]}" 2>/dev/null || true
+  fi
+  exit "$status"
+}
+
+trap cleanup EXIT INT TERM
+
 hermes dashboard \
   --host "$INTERNAL_HOST" \
   --port "$INTERNAL_PORT" \
   --no-open &
 
 HERMES_PID="$!"
+PIDS+=("$HERMES_PID")
 
 echo "[entrypoint] Aguardando Hermes responder em $INTERNAL_HOST:$INTERNAL_PORT..."
 
@@ -113,9 +132,46 @@ if ! kill -0 "$HERMES_PID" 2>/dev/null; then
   exit 1
 fi
 
+should_start_gateway=false
+case "$GATEWAY_ENABLED" in
+  true|1|yes|on)
+    should_start_gateway=true
+    ;;
+  false|0|no|off)
+    should_start_gateway=false
+    ;;
+  auto|"")
+    if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
+      should_start_gateway=true
+    fi
+    ;;
+  *)
+    echo "[entrypoint] HERMES_GATEWAY_ENABLED inválido: $GATEWAY_ENABLED"
+    exit 1
+    ;;
+esac
+
+if [ "$should_start_gateway" = "true" ]; then
+  echo "[entrypoint] Iniciando gateway de mensagens Hermes..."
+  # shellcheck disable=SC2086
+  hermes gateway run $GATEWAY_ARGS &
+  GATEWAY_PID="$!"
+  PIDS+=("$GATEWAY_PID")
+else
+  echo "[entrypoint] Gateway de mensagens desabilitado"
+fi
+
 echo "[entrypoint] Iniciando proxy público em $PUBLIC_HOST:$PUBLIC_PORT..."
 
-exec python /opt/hermes-custom/skills_api.py \
+python /opt/hermes-custom/skills_api.py \
   --host "$PUBLIC_HOST" \
   --port "$PUBLIC_PORT" \
-  --target "http://$INTERNAL_HOST:$INTERNAL_PORT"
+  --target "http://$INTERNAL_HOST:$INTERNAL_PORT" &
+
+PROXY_PID="$!"
+PIDS+=("$PROXY_PID")
+
+wait -n "${PIDS[@]}"
+EXITED_STATUS=$?
+echo "[entrypoint] Um processo do runtime encerrou (status=$EXITED_STATUS); finalizando container"
+exit "$EXITED_STATUS"

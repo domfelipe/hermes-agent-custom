@@ -24,6 +24,7 @@ GATEWAY_ALLOW_ALL_USERS=false
 HERMES_SOUL_OVERRIDE=Your custom soul prompt here
 HERMES_STT_PROVIDER=local
 HERMES_TTS_PROVIDER=disabled
+HERMES_GATEWAY_ENABLED=auto
 OLLAMA_API_KEY=your-ollama-api-key
 PORT=8642
 TELEGRAM_BOT_TOKEN=your-bot-token
@@ -39,6 +40,10 @@ MIKA_INTERNAL_FUNCTION_SECRET=shared-internal-secret
 `MIKA_CREATE_CRONJOB_URL` and `MIKA_CREATE_SKILL_URL` are optional when
 `MIKA_PLATFORM_FUNCTIONS_BASE_URL` or `SUPABASE_URL` is present. The Mika
 platform provisions all of these automatically for managed Railway services.
+
+`HERMES_GATEWAY_ENABLED=auto` starts `hermes gateway run` whenever
+`TELEGRAM_BOT_TOKEN` is present, so the container consumes Telegram polling in
+addition to serving the dashboard/proxy runtime API.
 
 ## Validation
 
