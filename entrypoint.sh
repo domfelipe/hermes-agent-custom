@@ -17,6 +17,7 @@ STT_OPENAI_MODEL="${HERMES_STT_OPENAI_MODEL:-whisper-1}"
 TTS_PROVIDER="${HERMES_TTS_PROVIDER:-disabled}"
 GATEWAY_ENABLED="${HERMES_GATEWAY_ENABLED:-auto}"
 GATEWAY_ARGS="${HERMES_GATEWAY_ARGS:---replace}"
+GATEWAY_API_SERVER_ENABLED="${HERMES_GATEWAY_API_SERVER_ENABLED:-false}"
 HERMES_ALLOW_ROOT_GATEWAY="${HERMES_ALLOW_ROOT_GATEWAY:-1}"
 export HERMES_ALLOW_ROOT_GATEWAY
 
@@ -153,8 +154,17 @@ esac
 
 if [ "$should_start_gateway" = "true" ]; then
   echo "[entrypoint] Iniciando gateway de mensagens Hermes..."
-  # shellcheck disable=SC2086
-  hermes gateway run $GATEWAY_ARGS &
+  if [ "$GATEWAY_API_SERVER_ENABLED" = "true" ]; then
+    # shellcheck disable=SC2086
+    hermes gateway run $GATEWAY_ARGS &
+  else
+    # The public runtime API is served by skills_api.py. Provisioned Mika
+    # instances still receive API_SERVER_KEY for that proxy, so hide it from
+    # the gateway process to avoid starting Hermes' native api_server adapter
+    # on the same public port.
+    # shellcheck disable=SC2086
+    API_SERVER_ENABLED=false API_SERVER_KEY= hermes gateway run $GATEWAY_ARGS &
+  fi
   GATEWAY_PID="$!"
   PIDS+=("$GATEWAY_PID")
 else

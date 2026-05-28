@@ -45,6 +45,11 @@ platform provisions all of these automatically for managed Railway services.
 `TELEGRAM_BOT_TOKEN` is present, so the container consumes Telegram polling in
 addition to serving the dashboard/proxy runtime API.
 
+By default the entrypoint hides `API_SERVER_KEY` from the gateway subprocess so
+Hermes does not start its native `api_server` adapter on the same public port as
+the Mika runtime proxy. Set `HERMES_GATEWAY_API_SERVER_ENABLED=true` only if you
+intentionally want the native adapter as a separate gateway platform.
+
 ## Validation
 
 ```bash
