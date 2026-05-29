@@ -32,6 +32,13 @@ data_dir: /opt/data
 model:
   provider: "${MODEL_PROVIDER}"
   default: "${MODEL_DEFAULT}"
+plugins:
+  enabled:
+    - mika_runtime
+platform_toolsets:
+  telegram:
+    - hermes-telegram
+    - mika_integrations
 EOF
 
   case "${STT_PROVIDER}" in

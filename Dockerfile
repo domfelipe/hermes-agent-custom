@@ -60,6 +60,13 @@ RUN printf '%s\n' \
     'model:' \
     '  provider: "ollama-cloud"' \
     '  default: "gemma4:31b-cloud"' \
+    'plugins:' \
+    '  enabled:' \
+    '    - mika_runtime' \
+    'platform_toolsets:' \
+    '  telegram:' \
+    '    - hermes-telegram' \
+    '    - mika_integrations' \
     'stt:' \
     '  enabled: true' \
     '  provider: "local"' \
