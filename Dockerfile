@@ -41,6 +41,7 @@ RUN chmod +x /opt/hermes-custom/entrypoint.sh
 
 # Garante que o Python encontre o módulo customizado
 ENV PYTHONPATH=/opt/hermes-custom:/opt/hermes
+ENV HERMES_HOME=/opt/data/.hermes
 ENV HERMES_MODEL_PROVIDER=ollama-cloud
 ENV HERMES_MODEL_DEFAULT=gemma4:31b-cloud
 ENV HERMES_STT_PROVIDER=local
