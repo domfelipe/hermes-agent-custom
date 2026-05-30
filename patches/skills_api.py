@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """
 skills_api.py — Reverse proxy + Runtime Sync API para Hermes Agent.
 
@@ -91,10 +93,32 @@ def _write_text(path: str, content: str, mode: int = 0o644) -> None:
 
 
 def _managed_skill_dirname(skill: dict) -> str:
-    raw_name = str(skill.get("name") or "skill").strip().lower()
-    slug = re.sub(r"[^a-z0-9._-]+", "-", raw_name).strip("-") or "skill"
-    skill_id = str(skill.get("skill_id") or "manual").strip()[:8] or "manual"
-    return f"{slug}--{skill_id}"
+    raw_name = str(skill.get("name") or "skill").strip()
+    # Hermes' skill_view resolves bare names by directory name/path, not by
+    # frontmatter. Keep Mika-managed skill dirs aligned with the user-facing
+    # skill name so `skill_view(name="Minha skill")` can load them immediately.
+    safe_name = re.sub(r"[\x00/\\]+", "-", raw_name)
+    safe_name = re.sub(r"\s+", " ", safe_name).strip(" .")
+    if not safe_name or safe_name in {".", ".."}:
+        return "skill"
+    return safe_name[:120]
+
+
+def _telegram_home_origin() -> dict | None:
+    chat_id = os.environ.get("TELEGRAM_HOME_CHANNEL", "").strip()
+    if not chat_id:
+        return None
+    thread_id = (
+        os.environ.get("TELEGRAM_CRON_THREAD_ID", "").strip()
+        or os.environ.get("TELEGRAM_HOME_CHANNEL_THREAD_ID", "").strip()
+    )
+    origin = {
+        "platform": "telegram",
+        "chat_id": chat_id,
+    }
+    if thread_id:
+        origin["thread_id"] = thread_id
+    return origin
 
 
 def _managed_entry_name(slug_source: str, entry_id: str) -> str:
@@ -215,8 +239,8 @@ def _sanitize_cron_runtime_job(raw_job: dict, existing_job: dict | None, synced_
         "last_status": existing_job.get("last_status") if existing_job else None,
         "last_error": existing_job.get("last_error") if existing_job else None,
         "last_delivery_error": existing_job.get("last_delivery_error") if existing_job else None,
-        "deliver": "local",
-        "origin": None,
+        "deliver": "origin",
+        "origin": existing_job.get("origin") if existing_job and existing_job.get("origin") else _telegram_home_origin(),
         "enabled_toolsets": None,
         "workdir": None,
         "managed_by": "mika",
@@ -329,6 +353,14 @@ async def skills_sync(request: web.Request) -> web.Response:
     }
     _write_json(SKILLS_MANIFEST_PATH, manifest, mode=0o644)
 
+    reload_result = None
+    reload_error = None
+    try:
+        from agent.skill_commands import reload_skills
+        reload_result = reload_skills()
+    except Exception as exc:
+        reload_error = str(exc)
+
     return web.json_response({
         "ok": True,
         "received": len(incoming_skills),
@@ -336,6 +368,8 @@ async def skills_sync(request: web.Request) -> web.Response:
         "skipped": skipped,
         "removed": removed,
         "managed_skills_root": MANAGED_SKILLS_ROOT,
+        "reload": reload_result,
+        "reload_error": reload_error,
     })
 
 
