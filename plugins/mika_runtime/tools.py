@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import json
+import asyncio
+import logging
 import os
+import re
+import threading
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, Iterable, Tuple
 from urllib import error, parse, request
@@ -17,6 +22,7 @@ DEFAULT_NOTION_VERSION = "2022-06-28"
 DEFAULT_CALCOM_VERSION = "2026-02-25"
 MAX_RESPONSE_CHARS = 20000
 USER_AGENT = "domco-mika-runtime/0.1"
+logger = logging.getLogger(__name__)
 AGENT_INSTANCE_ENV_NAMES = (
     "MIKA_AGENT_INSTANCE_ID",
     "HERMES_AGENT_INSTANCE_ID",
@@ -26,6 +32,10 @@ INTERNAL_SECRET_ENV_NAMES = (
     "MIKA_INTERNAL_FUNCTION_SECRET",
     "HERMES_INTERNAL_FUNCTION_SECRET",
     "INTERNAL_FUNCTION_SECRET",
+)
+GATEWAY_ACTION_INTERCEPT_ENV_NAMES = (
+    "MIKA_GATEWAY_ACTION_INTERCEPT",
+    "HERMES_GATEWAY_ACTION_INTERCEPT",
 )
 
 INTEGRATIONS_STATUS_SCHEMA = {
@@ -163,6 +173,89 @@ CALCOM_API_SCHEMA = {
 
 def _json_response(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def _is_truthy_env_default_true(*names: str) -> bool:
+    for name in names:
+        value = os.environ.get(name)
+        if value is None:
+            continue
+        lowered = str(value).strip().lower()
+        if lowered in {"0", "false", "no", "off", "disabled"}:
+            return False
+        if lowered in {"1", "true", "yes", "on", "enabled"}:
+            return True
+    return True
+
+
+def _normalize_intent_text(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return re.sub(r"\s+", " ", text)
+
+
+_TEMPORAL_RE = re.compile(
+    r"("
+    r"\bdaqui\s+(?:a\s+)?\d+\s*(?:min(?:uto)?s?|h(?:ora)?s?|dias?|semanas?)\b"
+    r"|\b(?:hoje|amanha|depois de amanha)\b"
+    r"|\b(?:todo|toda|todos|todas|diariamente|semanalmente|mensalmente|anualmente)\b"
+    r"|\b(?:segunda|terca|quarta|quinta|sexta|sabado|domingo)(?:-feira)?s?\b"
+    r"|\b(?:dia util|dias uteis|fim de semana)\b"
+    r"|\b(?:as|às)\s*\d{1,2}(?::\d{2}|h\d{0,2})?\b"
+    r"|\b\d{1,2}(?::\d{2}|h\d{0,2})\b"
+    r"|\b(?:cron|cronjob|automacao|automatizacao|lembrete|reminder|schedule)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+_CRON_INTENT_RE = re.compile(
+    r"("
+    r"\bme\s+lemb(?:ra|re)\b"
+    r"|\blemb(?:ra|re)(?:-me)?\b"
+    r"|\bme\s+avis(?:a|e)\b"
+    r"|\bavis(?:a|e)(?:-me)?\b"
+    r"|\bagend(?:e|ar)\b"
+    r"|\bme\s+agenda\b"
+    r"|\bagenda\s+(?:um|uma|isso|para|pra)\b"
+    r"|\bprogram(?:a|e|ar)\b"
+    r"|\bautomatiz(?:a|e|ar)\b"
+    r"|\bcria(?:r)?\s+(?:um\s+|uma\s+)?(?:cronjob|lembrete|automacao)\b"
+    r"|\b(?:todo|toda|todos|todas)\b.*\b(?:manda|envia|me\s+manda|me\s+envia|resum[ao])\b"
+    r")",
+    re.IGNORECASE,
+)
+
+_SKILL_INTENT_RE = re.compile(
+    r"("
+    r"\bcria(?:r)?\s+(?:uma\s+|um\s+)?skill\b"
+    r"|\bcrie\s+(?:uma\s+|um\s+)?skill\b"
+    r"|\bnova\s+skill\b"
+    r"|\badicion(?:a|e|ar)\s+(?:uma\s+|um\s+)?skill\b"
+    r"|\bensina(?:r)?\b.*\b(?:skill|quando eu mandar|workflow|processo)\b"
+    r"|\bsalv(?:a|e|ar)\b.*\b(?:skill|workflow|processo)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def detect_gateway_platform_action(text: Any) -> str | None:
+    """Return a deterministic Mika platform action for explicit user intents."""
+    normalized = _normalize_intent_text(text)
+    if not normalized:
+        return None
+
+    # Plain slash commands should continue to Hermes/skills dispatch.
+    if normalized.startswith("/") and not _SKILL_INTENT_RE.search(normalized):
+        return None
+
+    if _SKILL_INTENT_RE.search(normalized):
+        return "skill"
+
+    if _CRON_INTENT_RE.search(normalized) and _TEMPORAL_RE.search(normalized):
+        return "cronjob"
+
+    return None
 
 
 def _load_manifest() -> dict[str, Any]:
@@ -751,3 +844,169 @@ def handle_skill_create(args: dict[str, Any], **_: Any) -> str:
     if synced_count is not None:
         msg += f" Skills ativas sincronizadas: {synced_count}."
     return msg
+
+
+def _source_is_authorized_for_gateway_intercept(gateway: Any, source: Any) -> bool:
+    checker = getattr(gateway, "_is_user_authorized", None)
+    if not callable(checker):
+        return False
+    try:
+        return bool(checker(source))
+    except Exception:
+        logger.debug("gateway auth check failed for Mika intercept", exc_info=True)
+        return False
+
+
+def _gateway_thread_metadata(gateway: Any, event: Any) -> dict[str, Any] | None:
+    builder = getattr(gateway, "_thread_metadata_for_source", None)
+    if not callable(builder):
+        return None
+    try:
+        return builder(event.source, getattr(event, "message_id", None))
+    except TypeError:
+        try:
+            return builder(event.source)
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
+def _gateway_reply_anchor(gateway: Any, event: Any) -> str | None:
+    resolver = getattr(gateway, "_reply_anchor_for_event", None)
+    if callable(resolver):
+        try:
+            return resolver(event)
+        except Exception:
+            pass
+    message_id = getattr(event, "message_id", None)
+    return str(message_id) if message_id is not None else None
+
+
+def _schedule_gateway_reply(
+    *,
+    loop: asyncio.AbstractEventLoop,
+    adapter: Any,
+    chat_id: str,
+    content: str,
+    reply_to: str | None,
+    metadata: dict[str, Any] | None,
+) -> None:
+    async def _send() -> None:
+        await adapter.send(
+            chat_id=chat_id,
+            content=content,
+            reply_to=reply_to,
+            metadata=metadata,
+        )
+
+    future = asyncio.run_coroutine_threadsafe(_send(), loop)
+
+    def _log_failure(done: Any) -> None:
+        try:
+            done.result()
+        except Exception:
+            logger.warning("failed to send Mika platform action reply", exc_info=True)
+
+    future.add_done_callback(_log_failure)
+
+
+def _run_gateway_platform_action(
+    *,
+    action: str,
+    natural_language_input: str,
+    loop: asyncio.AbstractEventLoop,
+    adapter: Any,
+    chat_id: str,
+    reply_to: str | None,
+    metadata: dict[str, Any] | None,
+) -> None:
+    try:
+        if action == "cronjob":
+            content = handle_cronjob_create({
+                "natural_language_input": natural_language_input,
+            })
+        elif action == "skill":
+            content = handle_skill_create({
+                "natural_language_input": natural_language_input,
+            })
+        else:
+            content = "Erro: ação da plataforma não reconhecida."
+    except Exception as exc:
+        logger.warning("Mika platform action intercept failed", exc_info=True)
+        label = "automação" if action == "cronjob" else "skill"
+        content = f"Erro ao criar {label}: {exc}"
+
+    _schedule_gateway_reply(
+        loop=loop,
+        adapter=adapter,
+        chat_id=chat_id,
+        content=content,
+        reply_to=reply_to,
+        metadata=metadata,
+    )
+
+
+def handle_gateway_platform_action_intercept(
+    *,
+    event: Any,
+    gateway: Any,
+    session_store: Any = None,
+) -> dict[str, str] | None:
+    """Pre-gateway hook that makes Mika platform actions deterministic.
+
+    The LLM can still use cronjob_create/skill_create as tools, but explicit
+    Telegram requests are also routed directly to Supabase before the model
+    runs. That keeps Supabase as the source of truth and avoids a natural
+    language "ok, vou lembrar" response that never persisted anything.
+    """
+    del session_store
+
+    if not _is_truthy_env_default_true(*GATEWAY_ACTION_INTERCEPT_ENV_NAMES):
+        return None
+
+    if bool(getattr(event, "internal", False)):
+        return None
+
+    source = getattr(event, "source", None)
+    if source is None or bool(getattr(source, "is_bot", False)):
+        return None
+
+    text = str(getattr(event, "text", "") or "").strip()
+    action = detect_gateway_platform_action(text)
+    if not action:
+        return None
+
+    if not _source_is_authorized_for_gateway_intercept(gateway, source):
+        return None
+
+    adapters = getattr(gateway, "adapters", {}) or {}
+    adapter = adapters.get(getattr(source, "platform", None))
+    chat_id = str(getattr(source, "chat_id", "") or "").strip()
+    if adapter is None or not chat_id:
+        logger.warning("Mika intercept could not find adapter/chat_id for action=%s", action)
+        return None
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.warning("Mika intercept has no running event loop")
+        return None
+
+    thread = threading.Thread(
+        target=_run_gateway_platform_action,
+        kwargs={
+            "action": action,
+            "natural_language_input": text,
+            "loop": loop,
+            "adapter": adapter,
+            "chat_id": chat_id,
+            "reply_to": _gateway_reply_anchor(gateway, event),
+            "metadata": _gateway_thread_metadata(gateway, event),
+        },
+        name=f"mika-platform-action-{action}",
+        daemon=True,
+    )
+    thread.start()
+
+    return {"action": "skip", "reason": f"mika_{action}_handled"}

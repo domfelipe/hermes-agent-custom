@@ -6,6 +6,7 @@ import sys
 import tempfile
 import types
 import unittest
+import asyncio
 from unittest import mock
 
 
@@ -34,6 +35,28 @@ class FakeResponse:
 
 
 class MikaRuntimePlatformActionTests(unittest.TestCase):
+    def test_detect_gateway_platform_action_for_cronjob_and_skill(self) -> None:
+        self.assertEqual(
+            tools.detect_gateway_platform_action(
+                "Mika, me lembra daqui 3 minutos de validar salvamento na plataforma"
+            ),
+            "cronjob",
+        )
+        self.assertEqual(
+            tools.detect_gateway_platform_action(
+                "Mika, todo dia às 9h me manda um resumo da minha agenda"
+            ),
+            "cronjob",
+        )
+        self.assertEqual(
+            tools.detect_gateway_platform_action(
+                "Mika, cria uma skill chamada teste-go-live que responda skill ativa"
+            ),
+            "skill",
+        )
+        self.assertIsNone(tools.detect_gateway_platform_action("/teste_go_live"))
+        self.assertIsNone(tools.detect_gateway_platform_action("Qual é minha agenda hoje?"))
+
     def test_cronjob_create_posts_platform_contract(self) -> None:
         captured = {}
 
@@ -133,6 +156,101 @@ class MikaRuntimePlatformActionTests(unittest.TestCase):
 
         urlopen.assert_not_called()
         self.assertIn("endpoint da plataforma não configurado", result)
+
+
+class FakeGatewaySendResult:
+    success = True
+    message_id = "sent-1"
+
+
+class FakeGatewayAdapter:
+    def __init__(self) -> None:
+        self.sent: list[dict[str, object]] = []
+
+    async def send(self, chat_id, content, reply_to=None, metadata=None):
+        self.sent.append({
+            "chat_id": chat_id,
+            "content": content,
+            "reply_to": reply_to,
+            "metadata": metadata,
+        })
+        return FakeGatewaySendResult()
+
+
+class FakeGateway:
+    def __init__(self, adapter: FakeGatewayAdapter) -> None:
+        self.adapters = {"telegram": adapter}
+
+    def _is_user_authorized(self, source) -> bool:
+        return True
+
+    def _thread_metadata_for_source(self, source, reply_to_message_id=None):
+        return {"thread_id": "topic-1", "reply": reply_to_message_id}
+
+    def _reply_anchor_for_event(self, event):
+        return event.message_id
+
+
+class MikaGatewayInterceptTests(unittest.IsolatedAsyncioTestCase):
+    async def test_gateway_intercept_handles_cronjob_without_llm_dispatch(self) -> None:
+        adapter = FakeGatewayAdapter()
+        gateway = FakeGateway(adapter)
+        event = types.SimpleNamespace(
+            text="Mika, me lembra daqui 3 minutos de validar salvamento",
+            message_id="msg-1",
+            internal=False,
+            source=types.SimpleNamespace(
+                platform="telegram",
+                chat_id="chat-1",
+                is_bot=False,
+            ),
+        )
+
+        with mock.patch.object(
+            tools,
+            "handle_cronjob_create",
+            return_value="Automação criada e sincronizada: daqui 3 minutos.",
+        ) as create:
+            result = tools.handle_gateway_platform_action_intercept(
+                event=event,
+                gateway=gateway,
+                session_store=None,
+            )
+            for _ in range(100):
+                if adapter.sent:
+                    break
+                await asyncio.sleep(0.01)
+
+        self.assertEqual(result, {"action": "skip", "reason": "mika_cronjob_handled"})
+        create.assert_called_once_with({
+            "natural_language_input": "Mika, me lembra daqui 3 minutos de validar salvamento",
+        })
+        self.assertEqual(adapter.sent[0]["chat_id"], "chat-1")
+        self.assertEqual(adapter.sent[0]["reply_to"], "msg-1")
+        self.assertIn("Automação criada", str(adapter.sent[0]["content"]))
+
+    async def test_gateway_intercept_ignores_non_platform_action(self) -> None:
+        adapter = FakeGatewayAdapter()
+        gateway = FakeGateway(adapter)
+        event = types.SimpleNamespace(
+            text="/teste_go_live",
+            message_id="msg-2",
+            internal=False,
+            source=types.SimpleNamespace(
+                platform="telegram",
+                chat_id="chat-1",
+                is_bot=False,
+            ),
+        )
+
+        result = tools.handle_gateway_platform_action_intercept(
+            event=event,
+            gateway=gateway,
+            session_store=None,
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(adapter.sent, [])
 
 
 if __name__ == "__main__":

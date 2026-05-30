@@ -9,6 +9,7 @@ from plugins.mika_runtime.tools import (
     TODOIST_API_SCHEMA,
     handle_calcom_api,
     handle_cronjob_create,
+    handle_gateway_platform_action_intercept,
     handle_integrations_status,
     handle_notion_api,
     handle_skill_create,
@@ -59,4 +60,8 @@ def register(ctx) -> None:
         schema=SKILL_CREATE_SCHEMA,
         handler=handle_skill_create,
         emoji="🧩",
+    )
+    ctx.register_hook(
+        "pre_gateway_dispatch",
+        handle_gateway_platform_action_intercept,
     )
