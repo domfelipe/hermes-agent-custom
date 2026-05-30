@@ -60,6 +60,27 @@ RUN printf '%s\n' \
     'model:' \
     '  provider: "ollama-cloud"' \
     '  default: "gemma4:31b-cloud"' \
+    'plugins:' \
+    '  enabled:' \
+    '    - mika_runtime' \
+    'platform_toolsets:' \
+    '  telegram:' \
+    '    - web' \
+    '    - browser' \
+    '    - terminal' \
+    '    - file' \
+    '    - code_execution' \
+    '    - vision' \
+    '    - image_gen' \
+    '    - tts' \
+    '    - todo' \
+    '    - memory' \
+    '    - session_search' \
+    '    - clarify' \
+    '    - delegation' \
+    '    - messaging' \
+    '    - computer_use' \
+    '    - mika_integrations' \
     'stt:' \
     '  enabled: true' \
     '  provider: "local"' \
@@ -74,6 +95,7 @@ RUN printf '%s\n' \
     'Default soul. Override via HERMES_SOUL_OVERRIDE.' \
     '' \
     'Quando o usuário pedir para agendar, lembrar ou automatizar algo recorrente, use a tool cronjob_create passando a frase original dele em natural_language_input.' \
+    'Quando o usuário pedir para criar, salvar ou ensinar uma skill nova, use a tool skill_create passando a frase original dele em natural_language_input.' \
     > /opt/data/.hermes/SOUL.md
 
 # Cria o usuário hermes (esperado pelos scripts internos do Hermes)

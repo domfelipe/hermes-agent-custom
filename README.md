@@ -9,6 +9,7 @@ The Hermes gateway ignores environment variables for the primary model configura
 ## Configuration
 
 The image pre-configures:
+
 - **Provider**: `ollama-cloud`
 - **Model**: `gemma4:31b-cloud`
 - **Config path**: `/opt/data/.hermes/config.yaml`
@@ -23,11 +24,38 @@ GATEWAY_ALLOW_ALL_USERS=false
 HERMES_SOUL_OVERRIDE=Your custom soul prompt here
 HERMES_STT_PROVIDER=local
 HERMES_TTS_PROVIDER=disabled
+HERMES_GATEWAY_ENABLED=auto
 OLLAMA_API_KEY=your-ollama-api-key
 PORT=8642
 TELEGRAM_BOT_TOKEN=your-bot-token
 TELEGRAM_ALLOWED_USERS=your-user-id
 TELEGRAM_HOME_CHANNEL=your-channel-id
+MIKA_AGENT_INSTANCE_ID=agent-instance-uuid
+MIKA_PLATFORM_FUNCTIONS_BASE_URL=https://<project>.supabase.co/functions/v1
+MIKA_CREATE_CRONJOB_URL=https://<project>.supabase.co/functions/v1/create-cronjob-from-agent
+MIKA_CREATE_SKILL_URL=https://<project>.supabase.co/functions/v1/create-skill-from-agent
+MIKA_INTERNAL_FUNCTION_SECRET=shared-internal-secret
+```
+
+`MIKA_CREATE_CRONJOB_URL` and `MIKA_CREATE_SKILL_URL` are optional when
+`MIKA_PLATFORM_FUNCTIONS_BASE_URL` or `SUPABASE_URL` is present. The Mika
+platform provisions all of these automatically for managed Railway services.
+
+`HERMES_GATEWAY_ENABLED=auto` starts `hermes gateway run` whenever
+`TELEGRAM_BOT_TOKEN` is present, so the container consumes Telegram polling in
+addition to serving the dashboard/proxy runtime API.
+
+By default the entrypoint hides `API_SERVER_KEY` from the gateway subprocess so
+Hermes does not start its native `api_server` adapter on the same public port as
+the Mika runtime proxy. Set `HERMES_GATEWAY_API_SERVER_ENABLED=true` only if you
+intentionally want the native adapter as a separate gateway platform.
+
+## Validation
+
+```bash
+python3 -m unittest discover -s tests -v
+python3 -m compileall plugins patches tests
+git diff --check
 ```
 
 ## Deploy to Railway

@@ -5,11 +5,14 @@ from plugins.mika_runtime.tools import (
     CRONJOB_CREATE_SCHEMA,
     INTEGRATIONS_STATUS_SCHEMA,
     NOTION_API_SCHEMA,
+    SKILL_CREATE_SCHEMA,
     TODOIST_API_SCHEMA,
     handle_calcom_api,
     handle_cronjob_create,
+    handle_gateway_platform_action_intercept,
     handle_integrations_status,
     handle_notion_api,
+    handle_skill_create,
     handle_todoist_api,
 )
 
@@ -50,4 +53,15 @@ def register(ctx) -> None:
         schema=CRONJOB_CREATE_SCHEMA,
         handler=handle_cronjob_create,
         emoji="⏰",
+    )
+    ctx.register_tool(
+        name="skill_create",
+        toolset="mika_integrations",
+        schema=SKILL_CREATE_SCHEMA,
+        handler=handle_skill_create,
+        emoji="🧩",
+    )
+    ctx.register_hook(
+        "pre_gateway_dispatch",
+        handle_gateway_platform_action_intercept,
     )
