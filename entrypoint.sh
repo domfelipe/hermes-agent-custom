@@ -37,7 +37,21 @@ plugins:
     - mika_runtime
 platform_toolsets:
   telegram:
-    - hermes-telegram
+    - web
+    - browser
+    - terminal
+    - file
+    - code_execution
+    - vision
+    - image_gen
+    - tts
+    - todo
+    - memory
+    - session_search
+    - clarify
+    - delegation
+    - messaging
+    - computer_use
     - mika_integrations
 EOF
 
